@@ -30,6 +30,12 @@ Open another project and a browser split:
 pi-cmux open ~/project --browser http://localhost:3000
 ```
 
+Open a named project preset:
+
+```bash
+pi-cmux open --preset frontend
+```
+
 Run diagnostics:
 
 ```bash
@@ -51,6 +57,12 @@ After installing the package, Pi gets a `/cmux` command:
 ```text
 /cmux doctor
 /cmux browser http://localhost:3000
+/cmux browser url
+/cmux browser reload
+/cmux browser snapshot
+/cmux screen 80
+/cmux progress 50 "Running checks"
+/cmux progress clear
 /cmux move
 /cmux status "Waiting for review"
 /cmux log "Running checks"
@@ -66,6 +78,19 @@ Create `.pi-cmux.json` in a project:
 {
   "name": "My Project",
   "browser": "http://localhost:3000",
+  "panes": [
+    {
+      "name": "Dev server",
+      "command": "npm run dev",
+      "direction": "right"
+    },
+    {
+      "type": "browser",
+      "name": "Docs",
+      "url": "https://example.com/docs",
+      "direction": "down"
+    }
+  ],
   "pi": {
     "command": "pi",
     "args": []
@@ -75,6 +100,39 @@ Create `.pi-cmux.json` in a project:
   }
 }
 ```
+
+Terminal pane commands run from the project directory by default. Use `cwd` for a pane-specific working directory. Directions can be `left`, `right`, `up`, or `down`.
+
+Presets let a project define focused workspace profiles:
+
+```json
+{
+  "name": "My Project",
+  "browser": "http://localhost:3000",
+  "presets": {
+    "frontend": {
+      "name": "My Project — Frontend",
+      "panes": [
+        { "name": "Dev server", "command": "npm run dev" },
+        { "name": "Tests", "command": "npm test -- --watch", "direction": "down" }
+      ]
+    },
+    "review": {
+      "name": "My Project — Review",
+      "browser": "http://localhost:8080",
+      "panes": []
+    }
+  }
+}
+```
+
+Select one with:
+
+```bash
+pi-cmux open --preset frontend
+```
+
+Preset values override top-level `name`, `browser`, `pi`, `notifications`, and `panes` values.
 
 ## Principles
 

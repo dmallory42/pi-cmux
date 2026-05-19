@@ -27,7 +27,8 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "npm run build",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "check": "npm test",
     "prepack": "npm run build"
   },
   "peerDependencies": {
