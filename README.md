@@ -36,6 +36,14 @@ Run diagnostics:
 pi-cmux doctor
 ```
 
+Allow `pi-cmux` to create cmux workspaces from your regular shell:
+
+```bash
+pi-cmux configure-cmux
+```
+
+This enables cmux's Automation socket mode via macOS preferences and restarts cmux. `pi-cmux open` will offer to do this when cmux refuses external CLI connections.
+
 ## Pi commands
 
 After installing the package, Pi gets a `/cmux` command:

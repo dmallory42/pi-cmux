@@ -16,6 +16,7 @@ export interface PiCmuxConfig {
 
 export interface DoctorResult {
   platform: string;
+  cwd: string;
   cmuxPath?: string;
   cmuxPing: "ok" | "failed" | "not-found";
   cmuxAppRunning: boolean;
@@ -50,6 +51,16 @@ export function cmuxOk(): boolean {
   return runCmux(["ping"], { timeoutMs: 3_000 }).status === 0;
 }
 
+export function cmuxPingError(): string {
+  if (!hasCmux()) return "cmux not found";
+  const result = runCmux(["ping"], { timeoutMs: 3_000 });
+  return [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+}
+
+export function isAccessDeniedError(message: string): boolean {
+  return message.includes("Access denied") || message.includes("only processes started inside cmux can connect");
+}
+
 export function cmuxAppRunning(): boolean {
   if (process.platform !== "darwin") return false;
   return spawnSync("pgrep", ["-x", "cmux"], { stdio: "ignore" }).status === 0;
@@ -81,6 +92,7 @@ export function doctor(cwd = process.cwd()): DoctorResult {
   if (cmuxPath) cmuxPing = runCmux(["ping"], { timeoutMs: 3_000 }).status === 0 ? "ok" : "failed";
   return {
     platform: process.platform,
+    cwd: resolve(cwd),
     cmuxPath,
     cmuxPing,
     cmuxAppRunning: cmuxAppRunning(),
@@ -97,6 +109,7 @@ export function formatDoctor(result: DoctorResult): string {
   return [
     "pi-cmux doctor",
     `platform: ${result.platform}`,
+    `cwd: ${result.cwd}`,
     `cmux: ${result.cmuxPath ?? "not found"}`,
     `cmux ping: ${result.cmuxPing}`,
     `cmux app running: ${result.cmuxAppRunning ? "yes" : "no"}`,
@@ -170,6 +183,15 @@ export function shellQuote(value: string): string {
 
 function sleep(ms: number) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+export function configureCmuxAutomationMode(): number {
+  if (process.platform !== "darwin") return 1;
+  const write = spawnSync("defaults", ["write", "com.cmuxterm.app", "socketControlMode", "automation"], { stdio: "ignore" });
+  if (write.status !== 0) return write.status ?? 1;
+  spawnSync("pkill", ["-x", "cmux"], { stdio: "ignore" });
+  sleep(750);
+  return launchCmuxApp() ? 0 : 1;
 }
 
 export function installCmuxViaHomebrew(stdio: "inherit" | "pipe" = "inherit"): number {
