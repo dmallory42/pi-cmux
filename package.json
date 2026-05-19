@@ -1,0 +1,43 @@
+{
+  "name": "pi-cmux",
+  "version": "0.1.0",
+  "description": "Opinionated Pi workspaces for cmux.",
+  "type": "module",
+  "author": "dmallory42 <d.mallory42@gmail.com>",
+  "license": "GPL-3.0-or-later",
+  "bin": {
+    "pi-cmux": "dist/cli.js"
+  },
+  "pi": {
+    "extensions": [
+      "./dist/extension.js"
+    ]
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "cmux",
+    "agent",
+    "workspace"
+  ],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "npm run build",
+    "prepack": "npm run build"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}
