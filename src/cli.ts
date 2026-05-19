@@ -9,8 +9,10 @@ import {
   formatDoctor,
   hasCmux,
   installCmuxViaHomebrew,
+  launchCmuxApp,
   openWorkspace,
   readConfig,
+  waitForCmux,
 } from "./cmux.js";
 
 interface ParsedArgs {
@@ -75,13 +77,17 @@ async function open(parsed: ParsedArgs) {
     }
   }
 
+  const cwd = resolve(parsed.path ?? process.cwd());
   if (!cmuxOk()) {
-    console.error("cmux was found, but `cmux ping` failed. Open the cmux app and try again.");
-    process.exitCode = 1;
-    return;
+    console.log("cmux is installed, but its socket is not ready. Starting the cmux app...");
+    launchCmuxApp();
+    if (!waitForCmux()) {
+      console.error(cmuxNotReadyMessage());
+      process.exitCode = 1;
+      return;
+    }
   }
 
-  const cwd = resolve(parsed.path ?? process.cwd());
   const { config } = readConfig(cwd);
   const result = openWorkspace(cwd, config, parsed.browser);
   if (!result.ok) {
@@ -127,6 +133,18 @@ async function confirmInstall(yes: boolean): Promise<boolean> {
   } finally {
     rl.close();
   }
+}
+
+function cmuxNotReadyMessage(): string {
+  return [
+    "cmux is installed, but `cmux ping` still failed.",
+    "",
+    "If this is the first launch, open /Applications/cmux.app, complete any macOS prompts or onboarding, then run:",
+    "  pi-cmux open",
+    "",
+    "Diagnostics:",
+    "  pi-cmux doctor",
+  ].join("\n");
 }
 
 function missingCmuxMessage(): string {

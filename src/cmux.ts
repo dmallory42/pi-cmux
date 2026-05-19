@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
@@ -18,6 +18,7 @@ export interface DoctorResult {
   platform: string;
   cmuxPath?: string;
   cmuxPing: "ok" | "failed" | "not-found";
+  cmuxAppRunning: boolean;
   homebrewPath?: string;
   insideCmux: boolean;
   workspaceId?: string;
@@ -49,6 +50,26 @@ export function cmuxOk(): boolean {
   return runCmux(["ping"], { timeoutMs: 3_000 }).status === 0;
 }
 
+export function cmuxAppRunning(): boolean {
+  if (process.platform !== "darwin") return false;
+  return spawnSync("pgrep", ["-x", "cmux"], { stdio: "ignore" }).status === 0;
+}
+
+export function launchCmuxApp(): boolean {
+  if (process.platform !== "darwin") return false;
+  const result = spawnSync("open", ["-a", "cmux"], { stdio: "ignore", timeout: 10_000 });
+  return result.status === 0;
+}
+
+export function waitForCmux(timeoutMs = 15_000): boolean {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (cmuxOk()) return true;
+    sleep(500);
+  }
+  return cmuxOk();
+}
+
 export function insideCmux(): boolean {
   return Boolean(process.env.CMUX_WORKSPACE_ID || process.env.CMUX_SURFACE_ID || process.env.CMUX_TAB_ID);
 }
@@ -62,6 +83,7 @@ export function doctor(cwd = process.cwd()): DoctorResult {
     platform: process.platform,
     cmuxPath,
     cmuxPing,
+    cmuxAppRunning: cmuxAppRunning(),
     homebrewPath: commandPath("brew"),
     insideCmux: insideCmux(),
     workspaceId: process.env.CMUX_WORKSPACE_ID,
@@ -77,6 +99,7 @@ export function formatDoctor(result: DoctorResult): string {
     `platform: ${result.platform}`,
     `cmux: ${result.cmuxPath ?? "not found"}`,
     `cmux ping: ${result.cmuxPing}`,
+    `cmux app running: ${result.cmuxAppRunning ? "yes" : "no"}`,
     `homebrew: ${result.homebrewPath ?? "not found"}`,
     `inside cmux: ${result.insideCmux ? "yes" : "no"}`,
     `workspace: ${result.workspaceId ?? "-"}`,
@@ -114,7 +137,7 @@ export function buildPiCommand(config: PiCmuxConfig): string {
 export function openWorkspace(cwd: string, config: PiCmuxConfig, browser?: string): { ok: boolean; output: string } {
   const name = workspaceName(cwd, config);
   const piCommand = buildPiCommand(config);
-  const args = ["new-workspace", "--cwd", cwd, "--name", name, "--command", piCommand];
+  const args = ["new-workspace", "--cwd", cwd, "--name", name, "--command", piCommand, "--focus", "true"];
   const result = runCmux(args, { timeoutMs: 10_000 });
   const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
   if (result.status !== 0) return { ok: false, output };
@@ -143,6 +166,10 @@ export function notify(title: string, body: string): void {
 
 export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function sleep(ms: number) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 export function installCmuxViaHomebrew(stdio: "inherit" | "pipe" = "inherit"): number {
