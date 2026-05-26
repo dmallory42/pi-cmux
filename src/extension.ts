@@ -1,6 +1,9 @@
 import type { AgentEndEvent, ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
+  browserAutomationArgs,
+  clearProgress,
   currentPiSessionId,
+  defaultBrowserSurface,
   doctor,
   formatDoctor,
   hasCmux,
@@ -9,7 +12,9 @@ import {
   moveCommandForSession,
   notify,
   readConfig,
+  readScreen,
   runCmux,
+  setProgress,
   setStatus,
 } from "./cmux.js";
 
@@ -64,6 +69,12 @@ async function handleCmuxCommand(rawArgs: string, ctx: ExtensionCommandContext) 
     case "browser":
       await browser(rest, ctx);
       return;
+    case "screen":
+      await screen(rest, ctx);
+      return;
+    case "progress":
+      await progress(rest, ctx);
+      return;
     case "status":
       await status(rest, ctx);
       return;
@@ -79,7 +90,24 @@ async function handleCmuxCommand(rawArgs: string, ctx: ExtensionCommandContext) 
 }
 
 async function browser(args: string[], ctx: ExtensionCommandContext) {
-  const url = args[0] || safeReadConfig(ctx.cwd).config.browser;
+  const [command, ...rest] = args;
+  if (command === "url" || command === "reload" || command === "snapshot") {
+    await browserAutomation(command, ctx);
+    return;
+  }
+  if (command === "open") {
+    await openBrowser(rest[0], ctx);
+    return;
+  }
+  if (command === "help") {
+    ctx.ui.notify(browserHelpText(), "info");
+    return;
+  }
+  await openBrowser(command, ctx);
+}
+
+async function openBrowser(urlArg: string | undefined, ctx: ExtensionCommandContext) {
+  const url = urlArg || safeReadConfig(ctx.cwd).config.browser;
   if (!url) {
     ctx.ui.notify("Usage: /cmux browser <url>\n\nNo browser URL was provided and .pi-cmux.json has no `browser` value.", "warning");
     return;
@@ -87,11 +115,76 @@ async function browser(args: string[], ctx: ExtensionCommandContext) {
   if (!ensureUsableCmux(ctx)) return;
   const result = runCmux(["browser", "open-split", url], { timeoutMs: 10_000 });
   if (result.status !== 0) {
-    ctx.ui.notify(result.stderr || "Failed to open cmux browser split.", "error");
+    ctx.ui.notify(commandOutput(result) || "Failed to open cmux browser split.", "error");
     return;
   }
   log(`Opened browser: ${url}`);
   ctx.ui.notify(`Opened browser split: ${url}`, "info");
+}
+
+async function browserAutomation(command: "url" | "reload" | "snapshot", ctx: ExtensionCommandContext) {
+  if (!ensureUsableCmux(ctx)) return;
+  const surface = defaultBrowserSurface();
+  const result = runCmux(browserAutomationArgs(command, surface), { timeoutMs: 10_000 });
+  if (result.status !== 0) {
+    const hint = surface ? "" : "\n\nNo browser surface was found automatically. Open one with `/cmux browser <url>` first.";
+    ctx.ui.notify(commandOutput(result) || `Failed to run cmux browser ${command}.${hint}`, "error");
+    return;
+  }
+  const output = commandOutput(result);
+  if (command === "reload") {
+    ctx.ui.notify("Reloaded cmux browser.", "info");
+    return;
+  }
+  ctx.ui.notify(output || `cmux browser ${command} completed.`, "info");
+}
+
+async function screen(args: string[], ctx: ExtensionCommandContext) {
+  const linesArg = args[0];
+  let lines: number | undefined;
+  if (linesArg !== undefined) {
+    const parsed = Number(linesArg);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      ctx.ui.notify("Usage: /cmux screen [positive-line-count]", "warning");
+      return;
+    }
+    lines = parsed;
+  }
+  if (!ensureUsableCmux(ctx)) return;
+  const result = readScreen(lines);
+  if (result.status !== 0) {
+    ctx.ui.notify(commandOutput(result) || "Failed to read cmux screen.", "error");
+    return;
+  }
+  ctx.ui.notify(commandOutput(result) || "cmux screen is empty.", "info");
+}
+
+async function progress(args: string[], ctx: ExtensionCommandContext) {
+  const [value, ...labelParts] = args;
+  if (value === "clear") {
+    if (!ensureUsableCmux(ctx)) return;
+    const result = clearProgress();
+    if (result.status !== 0) {
+      ctx.ui.notify(commandOutput(result) || "Failed to clear cmux progress.", "error");
+      return;
+    }
+    ctx.ui.notify("Cleared cmux progress.", "info");
+    return;
+  }
+
+  const percent = Number(value);
+  if (!value || !Number.isFinite(percent) || percent < 0 || percent > 100) {
+    ctx.ui.notify("Usage: /cmux progress <0-100> [label]\n       /cmux progress clear", "warning");
+    return;
+  }
+  if (!ensureUsableCmux(ctx)) return;
+  const label = labelParts.join(" ").trim() || undefined;
+  const result = setProgress(percent, label);
+  if (result.status !== 0) {
+    ctx.ui.notify(commandOutput(result) || "Failed to set cmux progress.", "error");
+    return;
+  }
+  ctx.ui.notify(`cmux progress set: ${percent}%${label ? ` — ${label}` : ""}`, "info");
 }
 
 async function status(args: string[], ctx: ExtensionCommandContext) {
@@ -187,8 +280,23 @@ function textFromContent(content: unknown): string | undefined {
   return parts.join("\n").trim() || undefined;
 }
 
+function commandOutput(result: { stdout?: string; stderr?: string }): string {
+  return [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+}
+
 function splitArgs(input: string): string[] {
   return input.match(/(?:[^\s"]+|"[^"]*")+/g)?.map((part) => part.replace(/^"|"$/g, "")) ?? [];
+}
+
+function browserHelpText(): string {
+  return [
+    "pi-cmux browser commands:",
+    "  /cmux browser <url>",
+    "  /cmux browser open <url>",
+    "  /cmux browser url",
+    "  /cmux browser reload",
+    "  /cmux browser snapshot",
+  ].join("\n");
 }
 
 function helpText(): string {
@@ -196,6 +304,10 @@ function helpText(): string {
     "pi-cmux commands:",
     "  /cmux doctor",
     "  /cmux browser <url>",
+    "  /cmux browser url|reload|snapshot",
+    "  /cmux screen [lines]",
+    "  /cmux progress <0-100> [label]",
+    "  /cmux progress clear",
     "  /cmux move",
     "  /cmux status <value>",
     "  /cmux log <message>",

@@ -15,6 +15,7 @@ import {
   launchCmuxApp,
   openWorkspace,
   readConfig,
+  resolveWorkspaceConfig,
   waitForCmux,
 } from "./cmux.js";
 
@@ -22,6 +23,7 @@ interface ParsedArgs {
   command: string;
   path?: string;
   browser?: string;
+  preset?: string;
   yes: boolean;
   help: boolean;
 }
@@ -65,6 +67,11 @@ function parseArgs(args: string[]): ParsedArgs {
       if (!value) throw new Error("--browser requires a URL");
       parsed.browser = value;
     } else if (arg.startsWith("--browser=")) parsed.browser = arg.slice("--browser=".length);
+    else if (arg === "--preset") {
+      const value = args[++i];
+      if (!value) throw new Error("--preset requires a name");
+      parsed.preset = value;
+    } else if (arg.startsWith("--preset=")) parsed.preset = arg.slice("--preset=".length);
     else rest.push(arg);
   }
   if (rest[0] && ["open", "doctor", "install-cmux", "install", "configure-cmux", "configure"].includes(rest[0])) {
@@ -75,6 +82,15 @@ function parseArgs(args: string[]): ParsedArgs {
 }
 
 async function open(parsed: ParsedArgs) {
+  const cwd = resolve(parsed.path ?? process.cwd());
+  const { config } = readConfig(cwd);
+  const resolved = resolveWorkspaceConfig(config, parsed.preset);
+  if (!resolved.ok || !resolved.config) {
+    console.error(resolved.error || "Failed to resolve pi-cmux config.");
+    process.exitCode = 1;
+    return;
+  }
+
   if (!hasCmux()) {
     const installed = await maybeInstallCmux(parsed.yes);
     if (!installed) {
@@ -84,16 +100,15 @@ async function open(parsed: ParsedArgs) {
     }
   }
 
-  const cwd = resolve(parsed.path ?? process.cwd());
   if (!(await ensureCmuxReady(parsed.yes))) return;
 
-  const { config } = readConfig(cwd);
-  const result = openWorkspace(cwd, config, parsed.browser);
+  const result = openWorkspace(cwd, resolved.config, parsed.browser);
   if (!result.ok) {
     console.error(result.output || "Failed to open cmux workspace.");
     process.exitCode = 1;
     return;
   }
+  for (const warning of result.warnings) console.error(`Warning: ${warning}`);
   if (result.output) console.log(result.output);
   console.log(`Opened Pi workspace in cmux: ${cwd}`);
 }
@@ -242,7 +257,7 @@ function printHelp() {
   console.log(`pi-cmux — opinionated Pi workspaces for cmux
 
 Usage:
-  pi-cmux [open] [path] [--browser <url>]
+  pi-cmux [open] [path] [--browser <url>] [--preset <name>]
   pi-cmux doctor [path]
   pi-cmux install-cmux [--yes]
   pi-cmux configure-cmux [--yes]
@@ -250,6 +265,7 @@ Usage:
 Examples:
   pi-cmux open
   pi-cmux open ~/project --browser http://localhost:3000
+  pi-cmux open --preset frontend
   pi-cmux doctor
 `);
 }
